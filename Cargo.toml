@@ -1,0 +1,15 @@
+[package]
+name = "offline_crates"
+version = "0.1.0"
+authors = ["Martyn P <>"]
+edition = "2018"
+
+[dependencies]
+git2 = "0.10"
+rustc-serialize = "0.3"
+progress_bar = "0.1.0"
+reqwest = "0.9.22"
+sha2 = "0.8.0"
+hex = "0.4.0"
+clap = "2.33.0"
+

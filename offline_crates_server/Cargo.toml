@@ -1,0 +1,12 @@
+[package]
+name = "offline_crates_server"
+version = "0.1.0"
+authors = ["Martyn P <>"]
+edition = "2018"
+
+
+[dependencies]
+rocket = "0.4.2"
+rustc-serialize = "0.3"
+progress_bar = "0.1.0"
+clap = "2.33.0"
