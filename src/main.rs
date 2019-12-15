@@ -54,14 +54,14 @@ fn main() {
             Arg::with_name("index")
                 .short("i")
                 .long("index")
-                .help("Location for crates.io-index")
+                .help("Location for crates.io-index (default is ./crates.io-index)")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("store")
                 .short("s")
                 .long("store")
-                .help("Location for create file store")
+                .help("Location for create file store (default is ./crates)")
                 .takes_value(true),
         )
         .arg(
