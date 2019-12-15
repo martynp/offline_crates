@@ -1,4 +1,4 @@
-use rustc_serialize::json::{Json};
+use rustc_serialize::json::Json;
 
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
@@ -12,7 +12,7 @@ use progress_bar::progress_bar::ProgressBar;
 
 use sha2::{Digest, Sha256};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 extern crate reqwest;
 
@@ -53,6 +53,13 @@ pub fn walk_repo(dir: &Path, base_dir: &str, files: &mut Vec<String>) -> std::io
     Ok(())
 }
 
+/// Verify the store against the index by looking at checksums
+///
+/// Arguments
+///
+/// * `packages` - Vector of packages to verify
+/// * `missing` - Vector of packages to be filled with missing items
+///
 pub fn verify_store(
     packages: &mut Vec<Package>,
     missing: &mut Vec<Package>,
@@ -314,4 +321,29 @@ fn sha256_compare_file(file_path: &str, checksum: &str) -> Result<bool, std::io:
         true => Ok(true),
         false => Ok(false),
     }
+}
+
+/// Check for duplicate version numbers
+/// 
+/// Arguments
+///
+/// * `name` - Name of package
+/// * `version` - Version of package
+/// * `checksum` - Checksum of package
+/// * `packages` - Vector of packages to search
+///
+pub fn check_duplicate_version(
+    name: String,
+    version: String,
+    checksum: String,
+    packages: &Vec<Package>,
+) -> Result<(bool), std::io::Error> {
+    for candidate in packages.clone() {
+        if candidate.name == name && candidate.version == version {
+            if candidate.checksum != checksum {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
