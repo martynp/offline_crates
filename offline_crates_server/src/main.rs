@@ -11,13 +11,17 @@ use std::path::Path;
 use progress_bar::color::{Color, Style};
 use progress_bar::progress_bar::ProgressBar;
 
+use serde::{Serialize, Deserialize};
+
+use clap::{Arg, App};
 
 struct PackageState {
     packages : Vec<Package>,
 }
 
 #[macro_use] extern crate rocket;
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Package {
     name: String,
     version: String,
@@ -25,7 +29,6 @@ struct Package {
     file_path: String,
     relative_path: String,
 }
-
 
 #[get("/")]
 fn index() -> &'static str {
@@ -49,26 +52,89 @@ fn api(packages: State<PackageState>, name: String, version: String) -> Result<N
 
 
 
-fn main() {
+fn main() -> Result<(), std::io::Error> {
+
+    // Using clap to parse command line options
+    let matches = App::new("Crates.io Mirror Server")
+        .version("1.0")
+        .author("Martyn P")
+        .arg(Arg::with_name("index")
+             .short("i")
+             .long("index")
+             .help("Location for crates.io-index")
+             .takes_value(true))
+        .arg(Arg::with_name("store")
+             .short("s")
+             .long("store")
+             .help("Location for create file store")
+             .takes_value(true))
+        .arg(Arg::with_name("cache")
+             .short("c")
+             .long("cache")
+             .help("Cache file")
+             .takes_value(true))
+        .arg(Arg::with_name("create_cache")
+             .long("create_cache")
+             .help("Create cache file"))
+        .get_matches();
+
+    // Extract the command line arguments
+    // For later...
+//    let git_path = matches.value_of("index").unwrap_or("./crates.io-index");
+//    let mut store_path = matches.value_of("store").unwrap_or("./crates");
+
+
 
     let git_path = "/home/martyn/virtual_machines/crates/crates.io-index";
     let mut store_path = "/home/martyn/virtual_machines/crates/crates-mirror/crates";
 
-    let repo_dir = Path::new(git_path);
-
-    let mut files = Vec::new();
-    walk_repo(&repo_dir, &git_path, &mut files).unwrap();
-
-    let mut packages: Vec<Package> = Vec::new();
-    get_package_info(&mut files, &mut packages, git_path, &mut store_path).unwrap();
+        let mut packages: Vec<Package> = Vec::new();
 
 
+    if matches.is_present("cache") && matches.is_present("create_cache") == false {
+
+        let cache_file = matches.value_of("cache").unwrap();
+        let fp = File::open(cache_file)?;
+
+        let reader = BufReader::new(fp);
+
+        for line in reader.lines() {
+            let deserialized : Package = serde_json::from_str(&line.unwrap()).unwrap();
+            packages.push(deserialized);
+        }
+
+                
+
+    } else {
+
+
+        let repo_dir = Path::new(git_path);
+
+        let mut files = Vec::new();
+        walk_repo(&repo_dir, &git_path, &mut files).unwrap();
+
+        get_package_info(&mut files, &mut packages, git_path, &mut store_path).unwrap();
+
+        if matches.is_present("create_cache") {
+            let cache_file = matches.value_of("cache").expect("Cache path is required to create cache");
+            let mut fp = File::create(cache_file)?;
+            for package in packages {
+                let json_str = serde_json::to_string(&package).unwrap();
+                fp.write(json_str.as_bytes()).unwrap();
+                fp.write(b"\n").unwrap();
+            }
+            std::process::exit(-1);
+        }
+
+    }
 
 
     rocket::ignite()
         .manage(PackageState { packages : packages })
         .mount("/", routes![index, api])
         .launch();
+
+    Ok(())
 }
 
 fn walk_repo(dir: &Path, base_dir: &str, files: &mut Vec<String>) -> std::io::Result<()> {
