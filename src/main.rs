@@ -168,12 +168,11 @@ fn main() {
     let mut files = Vec::new();
     walk_repo(&repo_dir, &git_path, &mut files).unwrap();
 
-
-    let mut new_file = Vec::new();
-    for _ in 0..1000 {
-        new_file.push(files.pop().unwrap());
-    }
-    let mut files = new_file;
+//    let mut new_file = Vec::new();
+//    for _ in 0..1000 {
+//        new_file.push(files.pop().unwrap());
+//    }
+//    let mut files = new_file;
 
     let mut packages: Vec<Package> = Vec::new();
     get_package_info(&mut files, &mut packages, git_path, &mut store_path).unwrap();
