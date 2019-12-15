@@ -68,16 +68,10 @@ fn main() -> Result<(), std::io::Error> {
 
     // Extract the command line arguments
     // For later...
-//    let git_path = matches.value_of("index").unwrap_or("./crates.io-index");
-//    let mut store_path = matches.value_of("store").unwrap_or("./crates");
+    let git_path = matches.value_of("index").unwrap();
+    let mut store_path = matches.value_of("store").unwrap();
 
-
-
-    let git_path = "/home/martyn/virtual_machines/crates/crates.io-index";
-    let mut store_path = "/home/martyn/virtual_machines/crates/crates-mirror/crates";
-
-        let mut packages: Vec<Package> = Vec::new();
-
+    let mut packages: Vec<Package> = Vec::new();
 
     if matches.is_present("cache") && matches.is_present("create_cache") == false {
 
@@ -90,8 +84,6 @@ fn main() -> Result<(), std::io::Error> {
             let deserialized : Package = serde_json::from_str(&line.unwrap()).unwrap();
             packages.push(deserialized);
         }
-
-                
 
     } else {
 
