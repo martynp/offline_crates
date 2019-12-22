@@ -18,6 +18,8 @@ const CRATES_URL: &str = "https://github.com/rust-lang/crates.io-index";
 
 /// Equivalent to git pull
 ///
+/// https://stackoverflow.com/a/58778350
+///
 /// Arguments
 ///
 /// * `path` - Path to repository to fast-forward
@@ -44,8 +46,6 @@ fn fast_forward(path: &Path) -> Result<(), git2::Error> {
 }
 
 fn main() {
-    let mut progress_bar = ProgressBar::new(0);
-
     // Using clap to parse command line options
     let matches = App::new("Crates.io Mirror")
         .version("1.0")
@@ -81,6 +81,7 @@ fn main() {
 
     // Check to see if the git repository for the crates exists
     if repo_dir.exists() && repo_dir.is_dir() {
+        let mut progress_bar = ProgressBar::new(0);
         progress_bar.print_info(
             "Info",
             &format!("Index directory exists, updating..."),
@@ -108,6 +109,7 @@ fn main() {
         }
     // If directory does not exist, then clone it!
     } else {
+        let mut progress_bar = ProgressBar::new(0);
         progress_bar.print_info(
             "Info",
             &format!("Index directory does not exist, cloning..."),
@@ -131,8 +133,7 @@ fn main() {
     repository::get_package_info(&mut files, &mut packages, git_path, &mut store_path).unwrap();
 
     // Verify the store
-    let mut missing_files: Vec<Package> = Vec::new();
-    repository::verify_store(&mut packages, &mut missing_files).unwrap();
+    let mut missing_files: Vec<Package> = repository::verify_store(&mut packages, 10).unwrap();
 
     // If a diff is required, save it
     if matches.is_present("diff") {
@@ -145,5 +146,6 @@ fn main() {
         }
     }
 
+    // Do the deed with 20 threads
     repository::download_packages(&mut missing_files, 20).unwrap();
 }

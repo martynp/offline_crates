@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 extern crate reqwest;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Package {
     pub name: String,
     pub version: String,
@@ -33,6 +33,7 @@ pub struct Package {
 /// * `files` - Vector to store found files
 ///
 pub fn walk_repo(dir: &Path, base_dir: &str, files: &mut Vec<String>) -> std::io::Result<()> {
+    // TODO: Error if trailing slash
     let offset = base_dir.len() + 1; // +1 for the first '/'
     if dir.is_dir() {
         for entry in std::fs::read_dir(dir)? {
@@ -62,30 +63,110 @@ pub fn walk_repo(dir: &Path, base_dir: &str, files: &mut Vec<String>) -> std::io
 ///
 pub fn verify_store(
     packages: &mut Vec<Package>,
-    missing: &mut Vec<Package>,
-) -> std::io::Result<()> {
+    threads: usize,
+) -> std::io::Result<Vec<Package>> {
     let mut progress_bar = ProgressBar::new(packages.len());
     progress_bar.set_action("Verifying", Color::Blue, Style::Bold);
+
+    // Handles for the verifier threads
+    let mut handles = Vec::new();
+
+    // Communications from the main thread to the verifier thread
+    let mut to_thread = Vec::new();
+
+    // Communication from the verifier thread to the main thread
+    let (sender, receiver) = mpsc::channel();
+
+    let (to_missing_collator, missing_collator_rx) = mpsc::channel();
+    let missing_packages = thread::spawn(move || {
+        let mut missing = Vec::new();
+        loop {
+            let msg: (&str, Package) = missing_collator_rx.recv().unwrap();
+            if msg.0 == "data" {
+                missing.push(msg.1);
+            } else if msg.0 == "exit" {
+                break;
+            }
+        }
+        return missing;
+    });
+
+    // Create all the threads
+    for i in 0..threads {
+        // Generate a MPSC for this thread
+        let (msg, thread_rx) = mpsc::channel();
+
+        // Store the object to communicate with the thread
+        to_thread.push(msg);
+
+        // Clone a sender for this thread
+        let sender_n = sender.clone();
+        let to_missing_collator_n = to_missing_collator.clone();
+
+        // Create the thread and push the handler to the vector store
+        handles.push(thread::spawn(move || {
+            // Wait for all the threads to be created before they report in to the main thread for
+            // tasking
+            thread::sleep(Duration::from_millis(100));
+
+            // Tell the main thread we are waiting for tasking
+            sender_n.send(i).unwrap();
+
+            loop {
+                // Block while waiting for tasking
+                let msg: (&str, Package) = thread_rx.recv().unwrap();
+                if msg.0 == "exit" {
+                    break;
+                } else {
+                    if sha256_compare_file(&msg.1.file_path, &msg.1.checksum).unwrap() == false {
+                        to_missing_collator_n.send(("data", msg.1.clone())).unwrap();
+                    }
+                    sender_n.send(i).unwrap();
+                }
+            }
+        }));
+    }
 
     for package in packages {
         let path_to_package = Path::new(&package.file_path);
         if path_to_package.is_file() {
-            if sha256_compare_file(&package.file_path, &package.checksum)? == false {
-                progress_bar.print_info(
-                    "Failure",
-                    &format!(
-                        "{}-{} - Checksum incorrect, downloading crate again",
-                        package.name, package.version
-                    ),
-                    Color::Red,
-                    Style::Bold,
-                );
-                missing.push(package.clone());
-            }
+            // Wait for a thread to become free
+            let msg = receiver.recv().unwrap();
+
+            // Message the selected thread with the requried information
+            to_thread[msg].send(("data", package.clone())).unwrap();
         } else {
-            missing.push(package.clone());
+            to_missing_collator.send(("data", package.clone())).unwrap();
         }
         progress_bar.inc();
+    }
+
+    // Signal all the threads to stop
+    for th in to_thread {
+        th.send(("exit", Package::default())).unwrap();
+    }
+
+    // Join all verifiers
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    // Signal and join the thread collating missing pakages
+    to_missing_collator
+        .send(("exit", Package::default()))
+        .unwrap();
+    let missing = missing_packages.join().unwrap();
+
+    for package in missing.clone() {
+        progress_bar.print_info(
+            "Failure",
+            &format!(
+                "{}-{} - Checksum incorrect, downloading crate again",
+                package.name, package.version
+            ),
+            Color::Red,
+            Style::Bold,
+        );
     }
 
     progress_bar.print_info("Verify", "Complete", Color::Green, Style::Bold);
@@ -93,7 +174,7 @@ pub fn verify_store(
 
     println!("{:?} packages to download", missing.len());
 
-    Ok(())
+    Ok(missing)
 }
 
 /// Download packages given in vector of Packages
@@ -245,7 +326,6 @@ pub fn get_package_info(
 ) -> Result<(), std::io::Error> {
     let mut progress_bar = ProgressBar::new(files.len());
     progress_bar.set_action("Parsing", Color::Blue, Style::Bold);
-
     // Each entry in files is in the format ./crates.io-index/[a]/[b]/[package]
     for package in files {
         // Use the of the package String to get the file we want to open
@@ -324,7 +404,7 @@ fn sha256_compare_file(file_path: &str, checksum: &str) -> Result<bool, std::io:
 }
 
 /// Check for duplicate version numbers
-/// 
+///
 /// Arguments
 ///
 /// * `name` - Name of package
