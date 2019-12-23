@@ -68,7 +68,7 @@ fn main() {
             Arg::with_name("diff")
                 .short("d")
                 .long("diff")
-                .help("Create list of new packages")
+                .help("Create list of new creates")
                 .takes_value(true),
         )
         .get_matches();
@@ -129,23 +129,23 @@ fn main() {
     repository::walk_repo(&repo_dir, &git_path, &mut files).unwrap();
 
     // Get metadata from the index repository
-    let mut packages: Vec<Package> = Vec::new();
-    repository::get_package_info(&mut files, &mut packages, git_path, &mut store_path).unwrap();
+    let mut creates: Vec<Create> = Vec::new();
+    repository::get_create_info(&mut files, &mut creates, git_path, &mut store_path).unwrap();
 
     // Verify the store
-    let mut missing_files: Vec<Package> = repository::verify_store(&mut packages, 10).unwrap();
+    let mut missing_files: Vec<Create> = repository::verify_store(&mut creates, 10).unwrap();
 
     // If a diff is required, save it
     if matches.is_present("diff") {
         let diff_path = matches.value_of("diff").unwrap();
         let file = File::create(&diff_path).unwrap();
         let mut file = std::io::LineWriter::new(file);
-        for package in missing_files.clone() {
-            file.write_all(format!("{}\n", package.relative_path).as_bytes())
+        for create in missing_files.clone() {
+            file.write_all(format!("{}\n", create.relative_path).as_bytes())
                 .unwrap();
         }
     }
 
     // Do the deed with 20 threads
-    repository::download_packages(&mut missing_files, 20).unwrap();
+    repository::download_creates(&mut missing_files, 20).unwrap();
 }

@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 extern crate reqwest;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Package {
+pub struct Create {
     pub name: String,
     pub version: String,
     pub checksum: String,
@@ -58,14 +58,14 @@ pub fn walk_repo(dir: &Path, base_dir: &str, files: &mut Vec<String>) -> std::io
 ///
 /// Arguments
 ///
-/// * `packages` - Vector of packages to verify
-/// * `missing` - Vector of packages to be filled with missing items
+/// * `creates` - Vector of creates to verify
+/// * `missing` - Vector of creates to be filled with missing items
 ///
 pub fn verify_store(
-    packages: &mut Vec<Package>,
+    creates: &mut Vec<Create>,
     threads: usize,
-) -> std::io::Result<Vec<Package>> {
-    let mut progress_bar = ProgressBar::new(packages.len());
+) -> std::io::Result<Vec<Create>> {
+    let mut progress_bar = ProgressBar::new(creates.len());
     progress_bar.set_action("Verifying", Color::Blue, Style::Bold);
 
     // Handles for the verifier threads
@@ -78,10 +78,10 @@ pub fn verify_store(
     let (sender, receiver) = mpsc::channel();
 
     let (to_missing_collator, missing_collator_rx) = mpsc::channel();
-    let missing_packages = thread::spawn(move || {
+    let missing_creates = thread::spawn(move || {
         let mut missing = Vec::new();
         loop {
-            let msg: (&str, Package) = missing_collator_rx.recv().unwrap();
+            let msg: (&str, Create) = missing_collator_rx.recv().unwrap();
             if msg.0 == "data" {
                 missing.push(msg.1);
             } else if msg.0 == "exit" {
@@ -114,7 +114,7 @@ pub fn verify_store(
 
             loop {
                 // Block while waiting for tasking
-                let msg: (&str, Package) = thread_rx.recv().unwrap();
+                let msg: (&str, Create) = thread_rx.recv().unwrap();
                 if msg.0 == "exit" {
                     break;
                 } else {
@@ -127,23 +127,23 @@ pub fn verify_store(
         }));
     }
 
-    for package in packages {
-        let path_to_package = Path::new(&package.file_path);
-        if path_to_package.is_file() {
+    for create in creates {
+        let path_to_create = Path::new(&create.file_path);
+        if path_to_create.is_file() {
             // Wait for a thread to become free
             let msg = receiver.recv().unwrap();
 
             // Message the selected thread with the requried information
-            to_thread[msg].send(("data", package.clone())).unwrap();
+            to_thread[msg].send(("data", create.clone())).unwrap();
         } else {
-            to_missing_collator.send(("data", package.clone())).unwrap();
+            to_missing_collator.send(("data", create.clone())).unwrap();
         }
         progress_bar.inc();
     }
 
     // Signal all the threads to stop
     for th in to_thread {
-        th.send(("exit", Package::default())).unwrap();
+        th.send(("exit", Create::default())).unwrap();
     }
 
     // Join all verifiers
@@ -153,16 +153,16 @@ pub fn verify_store(
 
     // Signal and join the thread collating missing pakages
     to_missing_collator
-        .send(("exit", Package::default()))
+        .send(("exit", Create::default()))
         .unwrap();
-    let missing = missing_packages.join().unwrap();
+    let missing = missing_creates.join().unwrap();
 
-    for package in missing.clone() {
+    for create in missing.clone() {
         progress_bar.print_info(
             "Failure",
             &format!(
                 "{}-{} - Checksum incorrect, downloading crate again",
-                package.name, package.version
+                create.name, create.version
             ),
             Color::Red,
             Style::Bold,
@@ -172,21 +172,21 @@ pub fn verify_store(
     progress_bar.print_info("Verify", "Complete", Color::Green, Style::Bold);
     println!("");
 
-    println!("{:?} packages to download", missing.len());
+    println!("{:?} creates to download", missing.len());
 
     Ok(missing)
 }
 
-/// Download packages given in vector of Packages
+/// Download creates given in vector of Creates
 ///
 /// Arguments
 ///
-/// * `packages` - Vector of packages to download
+/// * `creates` - Vector of creates to download
 /// * `threads` - Number of simultaneous downloads
 ///
-pub fn download_packages(packages: &Vec<Package>, threads: usize) -> Result<(), std::io::Error> {
+pub fn download_creates(creates: &Vec<Create>, threads: usize) -> Result<(), std::io::Error> {
     // Progress bar for user updates
-    let mut progress_bar = ProgressBar::new(packages.len());
+    let mut progress_bar = ProgressBar::new(creates.len());
     progress_bar.set_action("Downloading", Color::Blue, Style::Bold);
 
     // Handles for the download threads
@@ -224,31 +224,31 @@ pub fn download_packages(packages: &Vec<Package>, threads: usize) -> Result<(), 
                 if b.0 == "exit" {
                     break;
                 } else {
-                    download_package(b.0, b.1, b.2).unwrap();
+                    download_create(b.0, b.1, b.2).unwrap();
                     sender_n.send(i).unwrap();
                 }
             }
         }));
     }
 
-    // Download each package
-    for package in packages {
+    // Download each create
+    for create in creates {
         // Make sure we have somewhere for the file to be downloaded to
-        let dir_path = Path::new(&package.file_path).parent().unwrap();
+        let dir_path = Path::new(&create.file_path).parent().unwrap();
         std::fs::create_dir_all(dir_path).unwrap();
 
         // Calculate the URL to be downloaded
         let target = format!(
             "https://crates.io/api/v1/crates/{}/{}/download",
-            package.name, package.version
+            create.name, create.version
         );
 
         // Wait for a thread to become free
         let msg = receiver.recv().unwrap();
 
-        // Get the local path and checksum for this package
+        // Get the local path and checksum for this create
         let file_path = String::from(dir_path.to_str().unwrap());
-        let checksum = String::from(&package.checksum);
+        let checksum = String::from(&create.checksum);
 
         // Message the selected thread with the requried information
         to_thread[msg].send((target, file_path, checksum)).unwrap();
@@ -271,7 +271,7 @@ pub fn download_packages(packages: &Vec<Package>, threads: usize) -> Result<(), 
     Ok(())
 }
 
-/// Download an individual package
+/// Download an individual create
 ///
 /// Arguments
 ///
@@ -279,7 +279,7 @@ pub fn download_packages(packages: &Vec<Package>, threads: usize) -> Result<(), 
 /// * `file_path` - String to local file
 /// * `checksum` - String of expected SHA256
 ///
-fn download_package(
+fn download_create(
     target: String,
     file_path: String,
     checksum: String,
@@ -312,27 +312,27 @@ fn download_package(
     Ok(())
 }
 
-/// Get data for each version of each package in the list of files
+/// Get data for each version of each create in the list of files
 ///
 /// Arguments
 ///
 /// * `files` - Vector of files containing JSON data to be parsed
 ///
-pub fn get_package_info(
+pub fn get_create_info(
     files: &mut Vec<String>,
-    packages: &mut Vec<Package>,
+    creates: &mut Vec<Create>,
     git_repo: &str,
     file_store: &str,
 ) -> Result<(), std::io::Error> {
     let mut progress_bar = ProgressBar::new(files.len());
     progress_bar.set_action("Parsing", Color::Blue, Style::Bold);
-    // Each entry in files is in the format ./crates.io-index/[a]/[b]/[package]
-    for package in files {
-        // Use the of the package String to get the file we want to open
-        let file_path: String = format!("{}/{}", git_repo, &package);
+    // Each entry in files is in the format ./crates.io-index/[a]/[b]/[create]
+    for create in files {
+        // Use the of the create String to get the file we want to open
+        let file_path: String = format!("{}/{}", git_repo, &create);
 
         // Create a path to the parent of the file_folder
-        let sub_folder = Path::new(&package)
+        let sub_folder = Path::new(&create)
             .parent()
             .unwrap()
             .to_str()
@@ -372,21 +372,21 @@ pub fn get_package_info(
             let relative_path = format!("{}/{}/{}-{}.crate", sub_folder, name, name, version);
             let file_path = format!("{}/{}", file_store, relative_path);
 
-            // Fill a Package struct with the extracted data
-            let package = Package {
+            // Fill a Create struct with the extracted data
+            let create = Create {
                 name: name,
                 version: version,
                 checksum: checksum,
                 file_path: file_path,
                 relative_path: relative_path,
             };
-            packages.push(package);
+            creates.push(create);
         }
         progress_bar.inc();
     }
     progress_bar.print_info("Parsing", "Complete", Color::Green, Style::Bold);
     println!("");
-    println!("There are {:?} packages to get", packages.len());
+    println!("There are {:?} creates to get", creates.len());
 
     Ok(())
 }
@@ -407,18 +407,18 @@ fn sha256_compare_file(file_path: &str, checksum: &str) -> Result<bool, std::io:
 ///
 /// Arguments
 ///
-/// * `name` - Name of package
-/// * `version` - Version of package
-/// * `checksum` - Checksum of package
-/// * `packages` - Vector of packages to search
+/// * `name` - Name of create
+/// * `version` - Version of create
+/// * `checksum` - Checksum of create
+/// * `creates` - Vector of creates to search
 ///
 pub fn check_duplicate_version(
     name: String,
     version: String,
     checksum: String,
-    packages: &Vec<Package>,
-) -> Result<(bool), std::io::Error> {
-    for candidate in packages.clone() {
+    creates: &Vec<Create>,
+) -> Result<bool, std::io::Error> {
+    for candidate in creates.clone() {
         if candidate.name == name && candidate.version == version {
             if candidate.checksum != checksum {
                 return Ok(true);

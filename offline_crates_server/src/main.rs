@@ -12,8 +12,8 @@ use std::path::Path;
 
 use clap::{Arg, App};
 
-struct PackageState {
-    packages : Vec<repository::Package>,
+struct CreateState {
+    creates : Vec<repository::Create>,
 }
 
 #[macro_use] extern crate rocket;
@@ -25,16 +25,16 @@ fn index() -> &'static str {
 }
 
 #[get("/api/v1/crates/<name>/<version>/download")]
-fn api(packages: State<PackageState>, name: String, version: String) -> Result<NamedFile, NotFound<String>>{
+fn api(creates: State<CreateState>, name: String, version: String) -> Result<NamedFile, NotFound<String>>{
 
     let mut file_path : String = String::from("");
     let mut found : bool = false;
 
-    // Iterate over the packages vector to look for a match, update the file_path string and found bool
+    // Iterate over the creates vector to look for a match, update the file_path string and found bool
     // if there is a match
-    for package in &packages.packages {
-        if package.name == name && package.version == version {
-            file_path = package.file_path.clone();
+    for create in &creates.creates {
+        if create.name == name && create.version == version {
+            file_path = create.file_path.clone();
             found = true;
             break;
         }
@@ -78,8 +78,8 @@ fn main() -> Result<(), std::io::Error> {
         .get_matches();
 
 
-    // Packages are going to be read from file, or created from index repository
-    let mut packages: Vec<Package> = Vec::new();
+    // Creates are going to be read from file, or created from index repository
+    let mut creates: Vec<Create> = Vec::new();
 
     // --cache without --create_cache means load the cache from file and run
     if cmd_args.is_present("cache") && cmd_args.is_present("create_cache") == false {
@@ -93,8 +93,8 @@ fn main() -> Result<(), std::io::Error> {
 
         // Iterate over and use serde to deserialize the JSON
         for line in reader.lines() {
-            let deserialized : Package = serde_json::from_str(&line.unwrap()).unwrap();
-            packages.push(deserialized);
+            let deserialized : Create = serde_json::from_str(&line.unwrap()).unwrap();
+            creates.push(deserialized);
         }
 
     // Not using a cache, or creating a new one
@@ -108,14 +108,14 @@ fn main() -> Result<(), std::io::Error> {
         // Find all the meta files in the repo and extract crate data
         let mut files = Vec::new();
         repository::walk_repo(&repo_dir, &git_path, &mut files).unwrap();
-        repository::get_package_info(&mut files, &mut packages, git_path, &mut store_path).unwrap();
+        repository::get_create_info(&mut files, &mut creates, git_path, &mut store_path).unwrap();
 
         // If create path is present, store the data in the given cache file
         if cmd_args.is_present("create_cache") {
             let cache_file = cmd_args.value_of("cache").expect("Cache path is required to create cache");
             let mut fp = File::create(cache_file)?;
-            for package in packages {
-                let json_str = serde_json::to_string(&package).unwrap();
+            for create in creates {
+                let json_str = serde_json::to_string(&create).unwrap();
                 fp.write(json_str.as_bytes()).unwrap();
                 fp.write(b"\n").unwrap();
             }
@@ -126,7 +126,7 @@ fn main() -> Result<(), std::io::Error> {
 
     // Start the server...
     rocket::ignite()
-        .manage(PackageState { packages : packages })
+        .manage(CreateState { creates : creates })
         .mount("/", routes![index, api])
         .launch();
 
