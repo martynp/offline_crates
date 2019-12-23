@@ -20,6 +20,7 @@ struct PackageState {
 
 #[get("/")]
 fn index() -> &'static str {
+    // TODO: See landing page ticket...
     "Hello, world!"
 }
 
@@ -53,7 +54,7 @@ fn api(packages: State<PackageState>, name: String, version: String) -> Result<N
 fn main() -> Result<(), std::io::Error> {
 
     // Using clap to parse command line options
-    let matches = App::new("Crates.io Mirror Server")
+    let cmd_args = App::new("Crates.io Mirror Server")
         .version("1.0")
         .author("Martyn P")
         .arg(Arg::with_name("index")
@@ -76,36 +77,42 @@ fn main() -> Result<(), std::io::Error> {
              .help("Create cache file"))
         .get_matches();
 
-    // Extract the command line arguments
-    let git_path = matches.value_of("index").unwrap();
-    let mut store_path = matches.value_of("store").unwrap();
 
+    // Packages are going to be read from file, or created from index repository
     let mut packages: Vec<Package> = Vec::new();
 
-    if matches.is_present("cache") && matches.is_present("create_cache") == false {
+    // --cache without --create_cache means load the cache from file and run
+    if cmd_args.is_present("cache") && cmd_args.is_present("create_cache") == false {
 
-        let cache_file = matches.value_of("cache").unwrap();
+        // Pull the command line argument and attempt to open for reading
+        let cache_file = cmd_args.value_of("cache").unwrap();
         let fp = File::open(cache_file)?;
 
+        // There is one JSON per lane so use the BufReader to get a line at a time
         let reader = BufReader::new(fp);
 
+        // Iterate over and use serde to deserialize the JSON
         for line in reader.lines() {
             let deserialized : Package = serde_json::from_str(&line.unwrap()).unwrap();
             packages.push(deserialized);
         }
 
+    // Not using a cache, or creating a new one
     } else {
 
-
+        // Extract the command line arguments
+        let git_path = cmd_args.value_of("index").unwrap();
+        let mut store_path = cmd_args.value_of("store").unwrap();
         let repo_dir = Path::new(git_path);
 
+        // Find all the meta files in the repo and extract crate data
         let mut files = Vec::new();
         repository::walk_repo(&repo_dir, &git_path, &mut files).unwrap();
-
         repository::get_package_info(&mut files, &mut packages, git_path, &mut store_path).unwrap();
 
-        if matches.is_present("create_cache") {
-            let cache_file = matches.value_of("cache").expect("Cache path is required to create cache");
+        // If create path is present, store the data in the given cache file
+        if cmd_args.is_present("create_cache") {
+            let cache_file = cmd_args.value_of("cache").expect("Cache path is required to create cache");
             let mut fp = File::create(cache_file)?;
             for package in packages {
                 let json_str = serde_json::to_string(&package).unwrap();
@@ -117,7 +124,7 @@ fn main() -> Result<(), std::io::Error> {
 
     }
 
-
+    // Start the server...
     rocket::ignite()
         .manage(PackageState { packages : packages })
         .mount("/", routes![index, api])
