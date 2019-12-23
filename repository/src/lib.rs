@@ -33,8 +33,6 @@ pub struct Create {
 /// * `files` - Vector to store found files
 ///
 pub fn walk_repo(dir: &Path, base_dir: &str, files: &mut Vec<String>) -> std::io::Result<()> {
-    // TODO: Error if trailing slash
-    let offset = base_dir.len() + 1; // +1 for the first '/'
     if dir.is_dir() {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
@@ -45,8 +43,8 @@ pub fn walk_repo(dir: &Path, base_dir: &str, files: &mut Vec<String>) -> std::io
                 }
             } else {
                 if path.ends_with("config.json") == false {
-                    let path_str = path.to_str().unwrap();
-                    files.push(String::from(&path_str[offset..]));
+                    let path_str = path.strip_prefix(base_dir).unwrap().to_str().unwrap();
+                    files.push(String::from(path_str));
                 }
             }
         }
