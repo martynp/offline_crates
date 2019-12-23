@@ -25,17 +25,27 @@ fn index() -> &'static str {
 
 #[get("/api/v1/crates/<name>/<version>/download")]
 fn api(packages: State<PackageState>, name: String, version: String) -> Result<NamedFile, NotFound<String>>{
-    println!("{}/{}", name, version);
-    let mut file_path : String = String::from("");
 
-    for package in packages.packages.clone() {
+    let mut file_path : String = String::from("");
+    let mut found : bool = false;
+
+    // Iterate over the packages vector to look for a match, update the file_path string and found bool
+    // if there is a match
+    for package in &packages.packages {
         if package.name == name && package.version == version {
-            file_path = package.file_path;
+            file_path = package.file_path.clone();
+            found = true;
+            break;
         }
     }
-    println!("{}", file_path);
 
-    NamedFile::open(&file_path).map_err(|_| NotFound(format!("File not found")))
+    if found == false {
+        // Crete is not in index if found is still false
+        Err(NotFound(String::from("Crate/version not found in index")))
+    } else {
+        // Create in index, but may not exists on disk...
+        NamedFile::open(&file_path).map_err(|_| NotFound(String::from("File not found")))
+    }
 }
 
 
@@ -67,7 +77,6 @@ fn main() -> Result<(), std::io::Error> {
         .get_matches();
 
     // Extract the command line arguments
-    // For later...
     let git_path = matches.value_of("index").unwrap();
     let mut store_path = matches.value_of("store").unwrap();
 
