@@ -57,7 +57,11 @@ pub fn walk_repo(dir: &Path, base_dir: &str, files: &mut Vec<String>) -> std::io
 /// Arguments
 ///
 /// * `creates` - Vector of creates to verify
-/// * `missing` - Vector of creates to be filled with missing items
+/// * `threads` - Number of threads to use for the sha256 verification
+///
+/// Returns
+///
+/// * Vector<Crate> - Vector of crates that need to be downloaded
 ///
 pub fn verify_store(
     creates: &mut Vec<Create>,
@@ -77,10 +81,22 @@ pub fn verify_store(
 
     let (to_missing_collator, missing_collator_rx) = mpsc::channel();
     let missing_creates = thread::spawn(move || {
+        let mut progress_bar = ProgressBar::new(0);
         let mut missing = Vec::new();
         loop {
             let msg: (&str, Create) = missing_collator_rx.recv().unwrap();
-            if msg.0 == "data" {
+            if msg.0 == "missing" {
+                missing.push(msg.1);
+            } else if msg.0 == "invalid" {
+                progress_bar.print_info(
+                    "Failure",
+                    &format!(
+                        "{}-{} - Checksum incorrect, downloading crate again",
+                        msg.1.name, msg.1.version
+                    ),
+                    Color::Red,
+                    Style::Bold,
+                );
                 missing.push(msg.1);
             } else if msg.0 == "exit" {
                 break;
@@ -117,7 +133,7 @@ pub fn verify_store(
                     break;
                 } else {
                     if sha256_compare_file(&msg.1.file_path, &msg.1.checksum).unwrap() == false {
-                        to_missing_collator_n.send(("data", msg.1.clone())).unwrap();
+                        to_missing_collator_n.send(("invalid", msg.1.clone())).unwrap();
                     }
                     sender_n.send(i).unwrap();
                 }
@@ -131,10 +147,10 @@ pub fn verify_store(
             // Wait for a thread to become free
             let msg = receiver.recv().unwrap();
 
-            // Message the selected thread with the requried information
+            // Message the selected thread with the required information
             to_thread[msg].send(("data", create.clone())).unwrap();
         } else {
-            to_missing_collator.send(("data", create.clone())).unwrap();
+            to_missing_collator.send(("missing", create.clone())).unwrap();
         }
         progress_bar.inc();
     }
@@ -154,18 +170,6 @@ pub fn verify_store(
         .send(("exit", Create::default()))
         .unwrap();
     let missing = missing_creates.join().unwrap();
-
-    for create in missing.clone() {
-        progress_bar.print_info(
-            "Failure",
-            &format!(
-                "{}-{} - Checksum incorrect, downloading crate again",
-                create.name, create.version
-            ),
-            Color::Red,
-            Style::Bold,
-        );
-    }
 
     progress_bar.print_info("Verify", "Complete", Color::Green, Style::Bold);
     println!("");
