@@ -61,14 +61,14 @@ fn main() {
             Arg::with_name("store")
                 .short("s")
                 .long("store")
-                .help("Location for create file store (default is ./crates)")
+                .help("Location for crate file store (default is ./crates)")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("diff")
                 .short("d")
                 .long("diff")
-                .help("Create list of new creates")
+                .help("Create list of new crates")
                 .takes_value(true),
         )
         .get_matches();
@@ -129,23 +129,23 @@ fn main() {
     repository::walk_repo(&repo_dir, &git_path, &mut files).unwrap();
 
     // Get metadata from the index repository
-    let mut creates: Vec<Create> = Vec::new();
-    repository::get_create_info(&mut files, &mut creates, git_path, &mut store_path).unwrap();
+    let mut crates: Vec<Crate> = Vec::new();
+    repository::get_crate_info(&mut files, &mut crates, git_path, &mut store_path).unwrap();
 
     // Verify the store
-    let mut missing_files: Vec<Create> = repository::verify_store(&mut creates, 10).unwrap();
+    let mut missing_files: Vec<Crate> = repository::verify_store(&mut crates, 10).unwrap();
 
     // If a diff is required, save it
     if matches.is_present("diff") {
         let diff_path = matches.value_of("diff").unwrap();
         let file = File::create(&diff_path).unwrap();
         let mut file = std::io::LineWriter::new(file);
-        for create in missing_files.clone() {
-            file.write_all(format!("{}\n", create.relative_path).as_bytes())
+        for dl_crate in missing_files.clone() {
+            file.write_all(format!("{}\n", dl_crate.relative_path).as_bytes())
                 .unwrap();
         }
     }
 
     // Do the deed with 20 threads
-    repository::download_creates(&mut missing_files, 20).unwrap();
+    repository::download_crates(&mut missing_files, 20).unwrap();
 }

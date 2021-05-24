@@ -1,10 +1,14 @@
-# Create your own crates.io 'mirror'
+
+
+# Complete offline mirror of crates.or
 
 This repository contains applications to create and serve a local copy of the crates.io crate repository. There are three parts to the crates.io service.
 
 1) crates.io-index - the github hosted repository containing the metadata for all crates on crates.io.
 2) File store - the place where cargo goes to get the crate it is looking for, served via a REST API.
 3) Local configuration to point at the alternative file source.
+
+In order to create the offline mirror you need to mirror the index, create the offline file store and then process the API.
 
 # Mirroring the index
 
@@ -23,7 +27,7 @@ When developing with an internet connection it is possible to fork the original 
 
 # Creating the file store
 
-Using cargo to build the offline\_crates appication (i.e. `cargo build --release`) the ./target/release/offline\_crates application has the following options:
+Using cargo to build the offline\_crates application (i.e. `cargo build --release`) the ./target/release/offline\_crates application has the following options:
 
 * -i / --index
 * -s / --store
@@ -31,9 +35,9 @@ Using cargo to build the offline\_crates appication (i.e. `cargo build --release
 
 Index should point to a directory which already contains a clone of the crates.io-index repository, if the directory does not exist then the official index will be cloned from github which is probably not what you want. The default location is ./crates.io-index.
 
-The store is the path to the location for the local file store. The default locaton is ./creates.
+The store is the path to the location for the local file store. The default location is ./crates.
 
-The diff option will fill the given file with the relative paths to newly added files. This can be used to track changes to the repositry making it possible to identify new files for transfer to offline systems.
+The diff option will fill the given file with the relative paths to newly added files. This can be used to track changes to the repository making it possible to identify new files for transfer to offline systems.
 
 For example:
 
@@ -43,7 +47,7 @@ For example:
 
 # Running the server
 
-The server is included as a sub-project in ./offline\_crates\_server. Using cargo to build the offline\_crates_\server (`cargo build --release`), the ./target/release/offine\_crates\_server has the following options:
+The server is included as a sub-project in ./offline\_crates\_server. Using cargo to build the offline\_crates_\server (`cargo build --release`), the ./target/release/offline\_crates\_server has the following options:
 
 * -i / --index
 * -s / --store
@@ -80,7 +84,7 @@ The following can be added to those files to configure which repository Cargo us
 [source]
 
 [source.mirror]
-registry = "http://github.com/martynp/crates.io-index.git"
+registry = "http://localhost:8080/crates.io-index.git"
 
 [source.crates-io]
 replace-with = "mirror"
@@ -91,6 +95,6 @@ replace-with = "mirror"
 * Make all of the above simpler!
   * Package executables
   * Docker container for server
-  * Simple homepage for server allowing searching - the offline repository might be a bit behind crates-io.index so users will need to know which versions of a crate are avaliable.
+  * Simple homepage for server allowing searching - the offline repository might be a bit behind crates-io.index so users will need to know which versions of a crate are available.
   * Testing...
   * Refactoring...
