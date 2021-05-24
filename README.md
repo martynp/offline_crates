@@ -1,6 +1,6 @@
 
 
-# Complete offline mirror of crates.or
+# Complete offline mirror of crates.io
 
 This repository contains applications to create and serve a local copy of the crates.io crate repository. There are three parts to the crates.io service.
 
