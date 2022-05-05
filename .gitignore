@@ -2,3 +2,6 @@
 **/*.rs.bk
 
 **/target/
+
+/crates.io-index
+/crates

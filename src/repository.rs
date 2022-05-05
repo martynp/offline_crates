@@ -38,14 +38,18 @@ pub fn walk_repo(dir: &Path, base_dir: &str, files: &mut Vec<String>) -> std::io
             let entry = entry?;
             let path = entry.path();
             if path.is_dir() {
-                if path.ends_with(".git") == false {
-                    walk_repo(&path, base_dir, files)?;
-                }
+                // Ignore dot folders
+                if path.file_name().unwrap().to_str().unwrap().starts_with(".") {
+                    println!("Ignored {:?}", path);
+                    continue;
+                } 
+                walk_repo(&path, base_dir, files)?;
             } else {
-                if path.ends_with("config.json") == false {
-                    let path_str = path.strip_prefix(base_dir).unwrap().to_str().unwrap();
-                    files.push(String::from(path_str));
+                if path.ends_with("config.json") {
+                    continue;
                 }
+                let path_str = path.strip_prefix(base_dir).unwrap().to_str().unwrap();
+                files.push(String::from(path_str));
             }
         }
     }
@@ -63,10 +67,7 @@ pub fn walk_repo(dir: &Path, base_dir: &str, files: &mut Vec<String>) -> std::io
 ///
 /// * Vector<Crate> - Vector of crates that need to be downloaded
 ///
-pub fn verify_store(
-    crates: &mut Vec<Crate>,
-    threads: usize,
-) -> std::io::Result<Vec<Crate>> {
+pub fn verify_store(crates: &Vec<Crate>, threads: usize) -> std::io::Result<Vec<Crate>> {
     let mut progress_bar = ProgressBar::new(crates.len());
     progress_bar.set_action("Verifying", Color::Blue, Style::Bold);
 
@@ -133,7 +134,9 @@ pub fn verify_store(
                     break;
                 } else {
                     if sha256_compare_file(&msg.1.file_path, &msg.1.checksum).unwrap() == false {
-                        to_missing_collator_n.send(("invalid", msg.1.clone())).unwrap();
+                        to_missing_collator_n
+                            .send(("invalid", msg.1.clone()))
+                            .unwrap();
                     }
                     sender_n.send(i).unwrap();
                 }
@@ -150,7 +153,9 @@ pub fn verify_store(
             // Message the selected thread with the required information
             to_thread[msg].send(("data", dl_crate.clone())).unwrap();
         } else {
-            to_missing_collator.send(("missing", dl_crate.clone())).unwrap();
+            to_missing_collator
+                .send(("missing", dl_crate.clone()))
+                .unwrap();
         }
         progress_bar.inc();
     }
@@ -171,6 +176,7 @@ pub fn verify_store(
         .unwrap();
     let missing = missing_crates.join().unwrap();
 
+    println!("");
     progress_bar.print_info("Verify", "Complete", Color::Green, Style::Bold);
     println!("");
 
@@ -321,7 +327,7 @@ fn download_crate(
 /// * `files` - Vector of files containing JSON data to be parsed
 ///
 pub fn get_crate_info(
-    files: &mut Vec<String>,
+    files: &Vec<String>,
     crates: &mut Vec<Crate>,
     git_repo: &str,
     file_store: &str,
@@ -386,9 +392,9 @@ pub fn get_crate_info(
         }
         progress_bar.inc();
     }
+    println!("");
     progress_bar.print_info("Parsing", "Complete", Color::Green, Style::Bold);
     println!("");
-    println!("There are {:?} crates to get", crates.len());
 
     Ok(())
 }
