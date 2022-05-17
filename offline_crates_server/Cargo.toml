@@ -1,12 +1,18 @@
 [package]
-name = "offline_crates_server"
-version = "0.1.0"
 authors = ["Martyn P <>"]
 edition = "2018"
-
+name = "offline_crates_server"
+version = "0.1.0"
 
 [dependencies]
-rocket = "0.4.2"
-clap = "2.33.0"
-serde_json = "1.0.44"
-repository = { path = "../repository" }
+clap = "2.33"
+progress_bar = "0.1.0"
+reqwest = "0.9.22"
+rocket = "0.5.0-rc.2"
+rustc-serialize = "0.3"
+serde = {version = "1.0", features = ["derive"]}
+serde_json = "1"
+
+hex = "0.4.0"
+offline_crates = {path = "../"}
+sha2 = "0.8.0"

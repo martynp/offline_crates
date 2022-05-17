@@ -1,22 +1,19 @@
-#![feature(proc_macro_hygiene, decl_macro)]
-
-use rocket::response::NamedFile;
-use rocket::response::status::NotFound;
-use rocket::State;
-
-use repository::*;
-
-use std::fs::File;
-use std::io::{prelude::*, BufReader};
 use std::path::Path;
 
-use clap::{Arg, App};
+use rocket::fs::NamedFile;
 
-struct CreateState {
-    creates : Vec<repository::Create>,
+use rocket::State;
+
+use clap::{App, Arg};
+
+mod repository;
+
+struct CrateState {
+    crates: Vec<repository::Crate>,
 }
 
-#[macro_use] extern crate rocket;
+#[macro_use]
+extern crate rocket;
 
 #[get("/")]
 fn index() -> &'static str {
@@ -25,14 +22,13 @@ fn index() -> &'static str {
 }
 
 #[get("/api/v1/crates/<name>/<version>/download")]
-fn api(creates: State<CreateState>, name: String, version: String) -> Result<NamedFile, NotFound<String>>{
-
-    let mut file_path : String = String::from("");
-    let mut found : bool = false;
+async fn api(crates: &State<CrateState>, name: String, version: String) -> Option<NamedFile> {
+    let mut file_path: String = String::from("");
+    let mut found: bool = false;
 
     // Iterate over the creates vector to look for a match, update the file_path string and found bool
     // if there is a match
-    for create in &creates.creates {
+    for create in &crates.crates {
         if create.name == name && create.version == version {
             file_path = create.file_path.clone();
             found = true;
@@ -40,96 +36,65 @@ fn api(creates: State<CreateState>, name: String, version: String) -> Result<Nam
         }
     }
 
-    if found == false {
-        // Crete is not in index if found is still false
-        Err(NotFound(String::from("Crate/version not found in index")))
-    } else {
-        // Create in index, but may not exists on disk...
-        NamedFile::open(&file_path).map_err(|_| NotFound(String::from("File not found")))
-    }
+    NamedFile::open(&file_path).await.ok()
 }
 
-
-
-fn main() -> Result<(), std::io::Error> {
-
+#[rocket::main]
+async fn main() -> Result<(), rocket::Error> {
     // Using clap to parse command line options
     let cmd_args = App::new("Crates.io Mirror Server")
         .version("1.0")
         .author("Martyn P")
-        .arg(Arg::with_name("index")
-             .short("i")
-             .long("index")
-             .help("Location for crates.io-index")
-             .takes_value(true))
-        .arg(Arg::with_name("store")
-             .short("s")
-             .long("store")
-             .help("Location for create file store")
-             .takes_value(true))
-        .arg(Arg::with_name("cache")
-             .short("c")
-             .long("cache")
-             .help("Cache file")
-             .takes_value(true))
-        .arg(Arg::with_name("create_cache")
-             .long("create_cache")
-             .help("Create cache file"))
+        .arg(
+            Arg::with_name("index")
+                .short("i")
+                .long("index")
+                .help("Location for crates.io-index")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("store")
+                .short("s")
+                .long("store")
+                .help("Location for create file store")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("cache")
+                .short("c")
+                .long("cache")
+                .help("Cache file")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("create_cache")
+                .long("create_cache")
+                .help("Create cache file"),
+        )
         .get_matches();
 
-
     // Creates are going to be read from file, or created from index repository
-    let mut creates: Vec<Create> = Vec::new();
+    let mut crates: Vec<repository::Crate> = Vec::new();
 
-    // --cache without --create_cache means load the cache from file and run
-    if cmd_args.is_present("cache") && cmd_args.is_present("create_cache") == false {
+    // Extract the command line arguments
+    let git_path = cmd_args.value_of("index").unwrap();
+    let store_path = cmd_args.value_of("store").unwrap();
+    let repo_dir = Path::new(git_path);
 
-        // Pull the command line argument and attempt to open for reading
-        let cache_file = cmd_args.value_of("cache").unwrap();
-        let fp = File::open(cache_file)?;
-
-        // There is one JSON per lane so use the BufReader to get a line at a time
-        let reader = BufReader::new(fp);
-
-        // Iterate over and use serde to deserialize the JSON
-        for line in reader.lines() {
-            let deserialized : Create = serde_json::from_str(&line.unwrap()).unwrap();
-            creates.push(deserialized);
-        }
-
-    // Not using a cache, or creating a new one
-    } else {
-
-        // Extract the command line arguments
-        let git_path = cmd_args.value_of("index").unwrap();
-        let mut store_path = cmd_args.value_of("store").unwrap();
-        let repo_dir = Path::new(git_path);
-
-        // Find all the meta files in the repo and extract crate data
-        let mut files = Vec::new();
-        repository::walk_repo(&repo_dir, &git_path, &mut files).unwrap();
-        repository::get_create_info(&mut files, &mut creates, git_path, &mut store_path).unwrap();
-
-        // If create path is present, store the data in the given cache file
-        if cmd_args.is_present("create_cache") {
-            let cache_file = cmd_args.value_of("cache").expect("Cache path is required to create cache");
-            let mut fp = File::create(cache_file)?;
-            for create in creates {
-                let json_str = serde_json::to_string(&create).unwrap();
-                fp.write(json_str.as_bytes()).unwrap();
-                fp.write(b"\n").unwrap();
-            }
-            std::process::exit(-1);
-        }
-
-    }
+    // Find all the meta files in the repo and extract crate data
+    let mut files = Vec::new();
+    repository::walk_repo(&repo_dir, &git_path, &mut files).unwrap();
+    repository::get_crate_info(&mut files, &mut crates, git_path, store_path).unwrap();
 
     // Start the server...
-    rocket::ignite()
-        .manage(CreateState { creates : creates })
+
+    let _rocket = rocket::build()
+        .manage(CrateState { crates: crates })
         .mount("/", routes![index, api])
-        .launch();
+        .ignite()
+        .await?
+        .launch()
+        .await?;
 
     Ok(())
 }
-

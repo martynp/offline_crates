@@ -176,7 +176,6 @@ pub fn verify_store(crates: &Vec<Crate>, threads: usize) -> std::io::Result<Vec<
         .unwrap();
     let missing = missing_crates.join().unwrap();
 
-    println!("");
     progress_bar.print_info("Verify", "Complete", Color::Green, Style::Bold);
     println!("");
 

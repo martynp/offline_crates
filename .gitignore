@@ -5,3 +5,6 @@
 
 /crates.io-index
 /crates
+/packaging/*.tar
+/packaging/*.tar.gz
+/packaging/offline_crates_server

@@ -11,7 +11,6 @@ use git2::Repository;
 use log;
 use progress_bar::color::{Color, Style};
 use progress_bar::progress_bar::ProgressBar;
-use same_file::is_same_file;
 
 mod repository;
 
@@ -156,7 +155,7 @@ fn main() {
         let lines: Vec<String> = reader.lines().map(|l| l.unwrap()).collect();
 
         let mut progress_bar = ProgressBar::new(lines.len());
-        progress_bar.set_action("Processing existing files list", Color::Blue, Style::Bold);
+        progress_bar.set_action("Processing", Color::Blue, Style::Bold);
 
         let mut removed_items: usize = 0;
         for line in &lines {
