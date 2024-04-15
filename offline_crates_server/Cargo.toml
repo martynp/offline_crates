@@ -7,8 +7,8 @@ version = "0.1.0"
 [dependencies]
 clap = "2.33"
 progress_bar = "0.1.0"
-reqwest = "0.9.22"
-rocket = "0.5.0-rc.2"
+reqwest = "0.12"
+rocket = "0.5"
 rustc-serialize = "0.3"
 serde = {version = "1.0", features = ["derive"]}
 serde_json = "1"
