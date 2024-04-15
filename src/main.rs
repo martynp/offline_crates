@@ -8,7 +8,6 @@ use std::path::Path;
 
 use clap::{App, Arg};
 use git2::Repository;
-use log;
 use progress_bar::color::{Color, Style};
 use progress_bar::progress_bar::ProgressBar;
 
@@ -129,11 +128,11 @@ fn main() {
 
     // Get the file list from the repository
     let mut files = Vec::new();
-    repository::walk_repo(&repo_dir, &git_path, &mut files).unwrap();
+    repository::walk_repo(repo_dir, git_path, &mut files).unwrap();
 
     // Get metadata from the index repository
     let mut crates_in_repo: Vec<repository::Crate> = Vec::new();
-    repository::get_crate_info(&files, &mut crates_in_repo, &git_path, &store_path).unwrap();
+    repository::get_crate_info(&files, &mut crates_in_repo, git_path, store_path).unwrap();
 
     // Verify the store
     if cmd.is_present("verify") {
@@ -160,7 +159,7 @@ fn main() {
         let mut removed_items: usize = 0;
         for line in &lines {
             progress_bar.inc();
-            let parts = line.split(" ").collect::<Vec<&str>>();
+            let parts = line.split(' ').collect::<Vec<&str>>();
             let checksum = parts[0];
             let mut path = String::from(parts[2]);
             if path.starts_with("./") {
@@ -172,11 +171,9 @@ fn main() {
 
             let mut to_remove: usize = 0;
             for (index, c) in crates_in_repo.iter().enumerate() {
-                if c.file_path == path.to_str().unwrap() {
-                    if c.checksum == checksum {
-                        to_remove = index;
-                        break;
-                    }
+                if c.file_path == path.to_str().unwrap() && c.checksum == checksum {
+                    to_remove = index;
+                    break;
                 }
             }
             crates_in_repo.remove(to_remove);
@@ -190,5 +187,5 @@ fn main() {
     }
 
     // Do the deed with 20 threads
-    repository::download_crates(&mut crates_in_repo, 20).unwrap();
+    repository::download_crates(&crates_in_repo, 20).unwrap();
 }

@@ -39,10 +39,10 @@ pub fn walk_repo(dir: &Path, base_dir: &str, files: &mut Vec<String>) -> std::io
             let path = entry.path();
             if path.is_dir() {
                 // Ignore dot folders
-                if path.file_name().unwrap().to_str().unwrap().starts_with(".") {
+                if path.file_name().unwrap().to_str().unwrap().starts_with('.') {
                     println!("Ignored {:?}", path);
                     continue;
-                } 
+                }
                 walk_repo(&path, base_dir, files)?;
             } else {
                 if path.ends_with("config.json") {
@@ -103,7 +103,7 @@ pub fn verify_store(crates: &Vec<Crate>, threads: usize) -> std::io::Result<Vec<
                 break;
             }
         }
-        return missing;
+        missing
     });
 
     // Create all the threads
@@ -133,7 +133,7 @@ pub fn verify_store(crates: &Vec<Crate>, threads: usize) -> std::io::Result<Vec<
                 if msg.0 == "exit" {
                     break;
                 } else {
-                    if sha256_compare_file(&msg.1.file_path, &msg.1.checksum).unwrap() == false {
+                    if !sha256_compare_file(&msg.1.file_path, &msg.1.checksum).unwrap() {
                         to_missing_collator_n
                             .send(("invalid", msg.1.clone()))
                             .unwrap();
@@ -177,7 +177,7 @@ pub fn verify_store(crates: &Vec<Crate>, threads: usize) -> std::io::Result<Vec<
     let missing = missing_crates.join().unwrap();
 
     progress_bar.print_info("Verify", "Complete", Color::Green, Style::Bold);
-    println!("");
+    println!();
 
     println!("{:?} crates to download", missing.len());
 
@@ -273,7 +273,7 @@ pub fn download_crates(crates: &Vec<Crate>, threads: usize) -> Result<(), std::i
     }
 
     progress_bar.print_info("Download", "Complete", Color::Green, Style::Bold);
-    println!("");
+    println!();
 
     Ok(())
 }
@@ -293,7 +293,7 @@ fn download_crate(
 ) -> Result<(), std::io::Error> {
     let file_path = Path::new(&file_path);
 
-    let mut response = reqwest::get(&target).unwrap();
+    let mut response = reqwest::blocking::get(&target).unwrap();
 
     // TODO: unwrap_or should be an error...
     let dest_path = {
@@ -310,8 +310,7 @@ fn download_crate(
     let mut dest = std::fs::File::create(dest_path.to_str().unwrap()).unwrap();
     std::io::copy(&mut response, &mut dest)?;
 
-    let checksum_check = sha256_compare_file(dest_path.to_str().unwrap(), &checksum)?;
-    if checksum_check == false {
+    if !sha256_compare_file(dest_path.to_str().unwrap(), &checksum)? {
         // TODO: This should be a progress_bar call
         println!("Failed downloading {}", target);
     }
@@ -381,19 +380,19 @@ pub fn get_crate_info(
 
             // Fill a Crate struct with the extracted data
             let my_crate = Crate {
-                name: name,
-                version: version,
-                checksum: checksum,
-                file_path: file_path,
-                relative_path: relative_path,
+                name,
+                version,
+                checksum,
+                file_path,
+                relative_path,
             };
             crates.push(my_crate);
         }
         progress_bar.inc();
     }
-    println!("");
+    println!();
     progress_bar.print_info("Parsing", "Complete", Color::Green, Style::Bold);
-    println!("");
+    println!();
 
     Ok(())
 }
@@ -423,13 +422,12 @@ pub fn check_duplicate_version(
     name: String,
     version: String,
     checksum: String,
-    crates: &Vec<Crate>,
+    crates: &[Crate],
 ) -> Result<bool, std::io::Error> {
-    for candidate in crates.clone() {
-        if candidate.name == name && candidate.version == version {
-            if candidate.checksum != checksum {
-                return Ok(true);
-            }
+    for candidate in crates.iter().cloned() {
+        if candidate.name == name && candidate.version == version && candidate.checksum != checksum
+        {
+            return Ok(true);
         }
     }
     Ok(false)
