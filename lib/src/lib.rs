@@ -266,21 +266,30 @@ pub async fn process_existing_crates_list(
 
 pub fn path_to_crate(data: &CrateData) -> PathBuf {
     match data.name.len() {
-        1 => PathBuf::from_str(&format!("./1/{}-{}.crate", data.name, data.vers))
-            .expect("Failed to create path from single digit name"),
-        2 => PathBuf::from_str(&format!("./2/{}-{}.crate", data.name, data.vers))
-            .expect("Failed to create path from double digit name"),
+        1 => PathBuf::from_str(&format!(
+            "./1/{}/{}-{}.crate",
+            data.name, data.name, data.vers
+        ))
+        .expect("Failed to create path from single digit name"),
+        2 => PathBuf::from_str(&format!(
+            "./2/{}/{}-{}.crate",
+            data.name, data.name, data.vers
+        ))
+        .expect("Failed to create path from double digit name"),
         3 => {
             let first = &data.name[0..2];
-            PathBuf::from_str(&format!("./3/{}/{}-{}.crate", first, data.name, data.vers))
-                .expect("Failed to create path from tripple digit name")
+            PathBuf::from_str(&format!(
+                "./3/{}/{}/{}-{}.crate",
+                first, data.name, data.name, data.vers
+            ))
+            .expect("Failed to create path from tripple digit name")
         }
         _ => {
             let first = &data.name[0..2];
             let second = &data.name[2..4];
             PathBuf::from_str(&format!(
-                "./{}/{}/{}-{}.crate",
-                first, second, data.name, data.vers
+                "./{}/{}/{}/{}-{}.crate",
+                first, second, data.name, data.name, data.vers
             ))
             .expect("Failed to create path from name")
         }
