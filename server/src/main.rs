@@ -49,6 +49,10 @@ struct Args {
     /// Git repository, if specified this repository will be reset and updated
     #[arg(short, long)]
     git_repository: PathBuf,
+
+    /// If set, crates store will be rebuild from this old location
+    #[arg(short, long)]
+    old_location: Option<PathBuf>,
 }
 
 #[rocket::main]
@@ -67,6 +71,20 @@ async fn main() -> Result<(), rocket::Error> {
     log::info!("Processing crate definitions");
     let crates = lib::process_crate_definition(crate_definitions, to_process).await;
     log::info!("Found {} crate permutations", crates.len());
+
+    if let Some(old_location) = args.old_location {
+        log::info!("Processing crate file from old location");
+        lib::copy_from_old_location(
+            &args.location,
+            &vec![old_location
+                .to_str()
+                .expect("Path was not a string")
+                .to_string()],
+            &crates,
+        )
+        .await
+        .expect("Copy failed");
+    }
 
     let _rocket = rocket::build()
         .manage(args.location)

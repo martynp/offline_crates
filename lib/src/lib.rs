@@ -136,6 +136,8 @@ pub async fn download_crates(
                 {
                     continue;
                 } else if let Some(path) = search(&search_paths, &data) {
+                    std::fs::create_dir_all(file_path.parent().expect("File did not have parent"))
+                        .expect("Unable to create download directory for crate");
                     tokio::fs::copy(path, file_path).await.unwrap();
                     continue;
                 } else {
@@ -196,6 +198,81 @@ pub async fn download_crates(
     for handle in &mut join_handles {
         if let Some(handle) = handle.take() {
             handle.await.expect("Failed to join download thread");
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn copy_from_old_location(
+    location: &Path,
+    search_path: &Vec<String>,
+    crates: &[CrateData],
+) -> Result<()> {
+    let number_of_crates = crates.len();
+
+    let mut task_channels = Vec::new();
+    let mut join_handles = Vec::new();
+
+    for _ in 0..4 {
+        let location = location.to_path_buf();
+        let search_paths = search_path.to_owned();
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<CrateData>(100);
+        task_channels.push(tx);
+        join_handles.push(Some(tokio::task::spawn(async move {
+            while let Some(data) = rx.recv().await {
+                let file_path = location.join(path_to_crate(&data));
+
+                if file_path.exists()
+                    && sha256_compare(&file_path, &data.cksum)
+                        .expect("Failed opening file for sha256 comparison")
+                {
+                    continue;
+                } else if let Some(path) = search(&search_paths, &data) {
+                    std::fs::create_dir_all(file_path.parent().expect("File did not have parent"))
+                        .expect("Unable to create download directory for crate");
+                    tokio::fs::copy(path, file_path).await.unwrap();
+                    continue;
+                }
+            }
+        })));
+    }
+
+    let crates = crates.to_owned();
+    
+    tokio::task::spawn(async move {
+        init_progress_bar_with_eta(number_of_crates);
+        set_progress_bar_action("Copying", Color::Blue, Style::Bold);
+
+        let mut count = 0;
+        let mut channel_index = 0;
+        for c in crates {
+            if task_channels[channel_index]
+                .send(c.to_owned())
+                .await
+                .is_err()
+            {
+                break;
+            }
+            channel_index += 1;
+            if channel_index >= task_channels.len() {
+                channel_index = 0;
+            }
+            count += 1;
+            set_progress_bar_progress(count);
+        }
+
+        set_progress_bar_progress(number_of_crates);
+        finalize_progress_bar();
+
+        drop(task_channels);
+    })
+    .await
+    .expect("Failed to join copy monitoring thread");
+
+    for handle in &mut join_handles {
+        if let Some(handle) = handle.take() {
+            handle.await.expect("Failed to join copy thread");
         }
     }
 
@@ -265,31 +342,33 @@ pub async fn process_existing_crates_list(
 }
 
 pub fn path_to_crate(data: &CrateData) -> PathBuf {
-    match data.name.len() {
+    let name = data.name.to_ascii_lowercase();
+
+    match name.len() {
         1 => PathBuf::from_str(&format!(
             "./1/{}/{}-{}.crate",
-            data.name, data.name, data.vers
+            name, name, data.vers
         ))
         .expect("Failed to create path from single digit name"),
         2 => PathBuf::from_str(&format!(
             "./2/{}/{}-{}.crate",
-            data.name, data.name, data.vers
+            name, name, data.vers
         ))
         .expect("Failed to create path from double digit name"),
         3 => {
-            let first = &data.name[0..2];
+            let first = &name[0..2];
             PathBuf::from_str(&format!(
                 "./3/{}/{}/{}-{}.crate",
-                first, data.name, data.name, data.vers
+                first, name, name, data.vers
             ))
             .expect("Failed to create path from tripple digit name")
         }
         _ => {
-            let first = &data.name[0..2];
-            let second = &data.name[2..4];
+            let first = &name[0..2];
+            let second = &name[2..4];
             PathBuf::from_str(&format!(
                 "./{}/{}/{}/{}-{}.crate",
-                first, second, data.name, data.name, data.vers
+                first, second, name, name, data.vers
             ))
             .expect("Failed to create path from name")
         }
