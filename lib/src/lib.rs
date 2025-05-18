@@ -96,6 +96,16 @@ pub async fn process_crate_definition(glob: Paths, expected: usize) -> Vec<Crate
         .expect("Failed to join crate definiton collecting thread")
 }
 
+/// Download the crates we know about.
+///
+/// This job is split over multiple tasks. A large number of downloader tasks is started with
+/// an MPSC channel set up to each one.
+///
+/// The MPSC channel can hold up to 100 crates to download, the downloader tasks run through
+/// those tasked downloads until all the downloads are complete.
+///
+/// A separate task is continuous refilling those channels with new files to download. This
+/// separate task also handles updating the terminal progress bar.
 pub async fn download_crates(
     git_repository: &Path,
     location: &Path,
@@ -105,6 +115,7 @@ pub async fn download_crates(
 ) -> Result<()> {
     let number_of_crates = crates.len();
 
+    // Work out the download server to use for the downloads
     let download = if let Ok(content) = std::fs::read_to_string(git_repository.join("config.json"))
     {
         let config: RepoConfig = serde_json::from_str(&content).unwrap();
@@ -118,14 +129,13 @@ pub async fn download_crates(
     let mut task_channels = Vec::new();
     let mut join_handles = Vec::new();
 
-    for _ in 0..4 {
+    for _ in 0..40 {
         let location = location.to_path_buf();
         let download = download.to_owned();
         let search_paths = search_path.to_owned();
         let (tx, mut rx) = tokio::sync::mpsc::channel::<CrateData>(100);
         task_channels.push(tx);
         join_handles.push(Some(tokio::task::spawn(async move {
-            let mut downloaded = 0;
             while let Some(data) = rx.recv().await {
                 let download_url = format!("{}/{}/{}/download", &download, data.name, data.vers);
                 let file_path = location.join(path_to_crate(&data));
@@ -154,11 +164,6 @@ pub async fn download_crates(
                         }
                     }
                 }
-
-                downloaded += 1;
-                if limit > 0 && downloaded > limit {
-                    break;
-                }
             }
         })));
     }
@@ -168,21 +173,41 @@ pub async fn download_crates(
         set_progress_bar_action("Downloading", Color::Blue, Style::Bold);
 
         let mut count = 0;
+        let mut ecount = 0;
         let mut channel_index = 0;
         for c in crates {
-            if task_channels[channel_index]
-                .send(c.to_owned())
-                .await
-                .is_err()
-            {
-                break;
-            }
-            channel_index += 1;
-            if channel_index >= task_channels.len() {
-                channel_index = 0;
+            'send_command: loop {
+                let result = task_channels[channel_index]
+                    .send_timeout(c.to_owned(), std::time::Duration::from_millis(100))
+                    .await;
+
+                // Alway increment to the next channel
+                channel_index += 1;
+                if channel_index >= task_channels.len() {
+                    channel_index = 0;
+                }
+
+                // If it is an error we stay in the loop to retry this crate on a different downloader
+                if result.is_err() {
+                    ecount += 1;
+                    if ecount >= task_channels.len() {
+                        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                        ecount = 0;
+                    }
+                    continue 'send_command;
+                } else {
+                    ecount = 0;
+                }
+
+                break 'send_command;
             }
             count += 1;
             set_progress_bar_progress(count);
+
+            if limit > 0 && count > limit as usize {
+                log::warn!("Exiting early due to download limit");
+                break;
+            }
         }
 
         set_progress_bar_progress(number_of_crates);

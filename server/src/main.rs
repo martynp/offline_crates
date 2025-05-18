@@ -34,14 +34,15 @@ async fn api(
     NamedFile::open(location.join(&file)).await.ok()
 }
 
-/// Crates Server Downloader
+#[get("/config.json")]
+async fn config_json(config: &State<String>) -> String {
+    config.to_string()
+}
+
+/// Offline Crates Server
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Limit number of crates to process (for debug)
-    #[arg(long, default_value_t = -1)]
-    limit: i32,
-
     /// Location to store files
     #[arg(short, long)]
     location: PathBuf,
@@ -68,10 +69,15 @@ async fn main() -> Result<(), rocket::Error> {
     let crates = lib::process_crate_definition(crate_definitions, to_process).await;
     log::info!("Found {} crate permutations", crates.len());
 
+    let config = rocket::tokio::fs::read_to_string(args.git_repository.join("config.json"))
+        .await
+        .expect("Failed to read config.json file from git registry");
+
     let _rocket = rocket::build()
         .manage(args.location)
         .manage(CrateState { crates })
-        .mount("/", routes![index, api])
+        .manage(config)
+        .mount("/", routes![index, api, config_json])
         .ignite()
         .await?
         .launch()

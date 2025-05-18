@@ -5,5 +5,4 @@ resolver = "2"
 members = [
     "./lib",
     "./downloader",
-    "./server"
-, "downloader"]
+    "./server"]
