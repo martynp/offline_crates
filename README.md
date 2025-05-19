@@ -75,3 +75,13 @@ replace-with = "mirror"
 If using the git based crates registry, the `registry` value should point to the HTTP path of the git repository index.
 
 # Docker
+
+Each release is also packaged in to a single docker image, hosted on docker hub (https://hub.docker.com/repository/docker/martynp/offline-crates/). The `download` and `server` binaries are available within the image:
+
+```
+# Download / update local mirror
+docker run --rm -it -u $(id -u):$(id -g) -v [path/to/location]:/files -v [path/to/git]:/git martynp/offline-crates:latest downloader -l /files -g /git
+
+# Start server on port 8000
+docker run --rm -it -u $(id -u):$(id -g) -p 8000:8000 -v [path/to/location]:/files -v [path/to/git]:/git martynp/offline-crates:latest server -l /files -g /git
+```
