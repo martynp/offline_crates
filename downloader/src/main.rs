@@ -1,4 +1,4 @@
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, Result};
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -100,17 +100,14 @@ pub fn update_git_repository(args: &crate::Args) -> Result<()> {
                 &args.repository
             );
             Repository::clone(&args.repository, args.git_repository.clone())
-                .map_err(|e| Error::new(ErrorKind::Other, e))?
+                .map_err(Error::other)?
         }
     };
 
     log::info!("Checking out branch {}", &args.branch);
-    let (object, _) = repo
-        .revparse_ext(&args.branch)
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+    let (object, _) = repo.revparse_ext(&args.branch).map_err(Error::other)?;
 
-    repo.checkout_tree(&object, None)
-        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+    repo.checkout_tree(&object, None).map_err(Error::other)?;
 
     Ok(())
 }

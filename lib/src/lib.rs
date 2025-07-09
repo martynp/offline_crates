@@ -289,6 +289,38 @@ pub async fn process_existing_crates_list(
     }
 }
 
+/// From a given search path and the loaded crate data, copy any missing crates to the
+/// specified store location
+///
+pub fn copy_missing_crates(
+    search_paths: &Vec<String>,
+    store_location: &Path,
+    crates: &[CrateData],
+) -> Result<usize> {
+    let mut count = 0;
+    let mut copied = 0;
+    let to_process = crates.len();
+    init_progress_bar_with_eta(to_process);
+    set_progress_bar_action("Checking", Color::Blue, Style::Bold);
+    for data in crates {
+        count += 1;
+        if count % 1000 == 0 {
+            set_progress_bar_progress(count);
+        }
+        let file_path = path_to_crate(data);
+        if !file_path.exists() {
+            if let Some(path) = search(search_paths, data) {
+                std::fs::create_dir_all(file_path.parent().expect("File did not have parent"))?;
+                std::fs::copy(path, store_location.join(file_path))?;
+                copied += 1;
+            }
+        }
+    }
+    set_progress_bar_progress(to_process);
+    finalize_progress_bar();
+    Ok(copied)
+}
+
 pub fn path_to_crate(data: &CrateData) -> PathBuf {
     match data.name.len() {
         1 => PathBuf::from_str(&format!(

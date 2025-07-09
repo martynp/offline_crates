@@ -47,9 +47,13 @@ struct Args {
     #[arg(short, long)]
     location: PathBuf,
 
-    /// Git repository, if specified this repository will be reset and updated
+    /// Git repository location on disk
     #[arg(short, long)]
     git_repository: PathBuf,
+
+    /// Optional search path for existing crates
+    #[arg(short, long)]
+    search_path: Vec<String>,
 }
 
 #[rocket::main]
@@ -68,6 +72,13 @@ async fn main() -> Result<(), rocket::Error> {
     log::info!("Processing crate definitions");
     let crates = lib::process_crate_definition(crate_definitions, to_process).await;
     log::info!("Found {} crate permutations", crates.len());
+
+    if !args.search_path.is_empty() {
+        log::info!("Copying missing crates from search paths");
+        let copied = lib::copy_missing_crates(&args.search_path, &args.location, &crates)
+            .expect("Failed to copy missing crates");
+        log::info!("Copied {copied} crates from search paths");
+    }
 
     let config = rocket::tokio::fs::read_to_string(args.git_repository.join("config.json"))
         .await
