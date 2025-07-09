@@ -76,6 +76,7 @@ async fn main() -> Result<(), rocket::Error> {
     if !args.search_path.is_empty() {
         log::info!("Copying missing crates from search paths");
         let copied = lib::copy_missing_crates(&args.search_path, &args.location, &crates)
+            .await
             .expect("Failed to copy missing crates");
         log::info!("Copied {copied} crates from search paths");
     }

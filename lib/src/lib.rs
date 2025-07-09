@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::io::{Error, Result};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 
 use futures::TryStreamExt;
 use glob::{glob, Paths};
 use progress_bar::*;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::Semaphore;
 
 pub mod structures;
 
@@ -35,12 +37,9 @@ pub async fn process_crate_definition(glob: Paths, expected: usize) -> Vec<Crate
         task_channels.push(tx);
         join_handles.push(Some(tokio::task::spawn(async move {
             while let Some(file) = rx.recv().await {
-                for version in std::fs::read_to_string(&file)
-                    .unwrap_or("".into())
-                    .lines()
-                    .map(|line| serde_json::from_str::<CrateData>(line).ok())
-                {
-                    if let Some(version) = version {
+                let content = std::fs::read_to_string(&file).unwrap_or("".into());
+                for line in content.lines() {
+                    if let Ok(version) = serde_json::from_str::<CrateData>(line) {
                         if !version.yanked {
                             collect_tx
                                 .send(version)
@@ -142,15 +141,19 @@ pub async fn download_crates(
 
                 if file_path.exists()
                     && sha256_compare(&file_path, &data.cksum)
+                        .await
                         .expect("Failed opening file for sha256 comparison")
                 {
                     continue;
-                } else if let Some(path) = search(&search_paths, &data) {
+                } else if let Some(path) = search(&search_paths, &data).await {
                     tokio::fs::copy(path, file_path).await.unwrap();
                     continue;
                 } else {
-                    std::fs::create_dir_all(file_path.parent().expect("File did not have parent"))
-                        .expect("Unable to create download directory for crate");
+                    tokio::fs::create_dir_all(
+                        file_path.parent().expect("File did not have parent"),
+                    )
+                    .await
+                    .expect("Unable to create download directory for crate");
                     let response = reqwest::get(download_url).await.unwrap();
 
                     let mut dest = tokio::fs::File::create(&file_path).await.unwrap();
@@ -281,7 +284,7 @@ pub async fn process_existing_crates_list(
         finalize_progress_bar();
         let removed = to_process - new_crates.len();
         if removed > 0 {
-            log::info!("Removed {} existing crates", removed);
+            log::info!("Removed {removed} existing crates");
         }
         new_crates
     } else {
@@ -292,14 +295,18 @@ pub async fn process_existing_crates_list(
 /// From a given search path and the loaded crate data, copy any missing crates to the
 /// specified store location
 ///
-pub fn copy_missing_crates(
-    search_paths: &Vec<String>,
+pub async fn copy_missing_crates(
+    search_paths: &[String],
     store_location: &Path,
     crates: &[CrateData],
 ) -> Result<usize> {
     let mut count = 0;
     let mut copied = 0;
     let to_process = crates.len();
+
+    let mut handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+    let semaphore = Arc::new(Semaphore::new(10));
+
     init_progress_bar_with_eta(to_process);
     set_progress_bar_action("Checking", Color::Blue, Style::Bold);
     for data in crates {
@@ -307,17 +314,50 @@ pub fn copy_missing_crates(
         if count % 1000 == 0 {
             set_progress_bar_progress(count);
         }
-        let file_path = path_to_crate(data);
-        if !file_path.exists() {
-            if let Some(path) = search(search_paths, data) {
-                std::fs::create_dir_all(file_path.parent().expect("File did not have parent"))?;
-                std::fs::copy(path, store_location.join(file_path))?;
-                copied += 1;
+        let relative_file_path = path_to_crate(data);
+        let path_on_disk = store_location.join(relative_file_path);
+
+        if !path_on_disk.exists() {
+            //    if let Some(path) = search(search_paths, data) {
+            //        std::fs::create_dir_all(file_path.parent().expect("File did not have parent"))?;
+            //        std::fs::copy(path, store_location.join(file_path))?;
+            //        copied += 1;
+            //    }
+
+            // Spin until there is a semaphore to grab
+            while semaphore.available_permits() == 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
+
+            let semaphore = semaphore.clone();
+            let search_paths = search_paths.to_vec();
+            let data = data.clone();
+            let handle = tokio::task::spawn(async move {
+                let _permit = semaphore.acquire().await.unwrap();
+                if let Some(path) = search(&search_paths, &data).await {
+                    tokio::fs::create_dir_all(
+                        path_on_disk.parent().expect("File did not have parent"),
+                    )
+                    .await
+                    .expect("Create dir failed");
+                    tokio::fs::copy(path, path_on_disk)
+                        .await
+                        .expect("Copy failed");
+                }
+            });
+            handles.push(handle);
+            copied += 1;
         }
     }
     set_progress_bar_progress(to_process);
     finalize_progress_bar();
+
+    for handle in handles {
+        let _ = handle.await;
+    }
+
+    semaphore.close();
+
     Ok(copied)
 }
 
@@ -353,25 +393,38 @@ pub fn path_to_crate(data: &CrateData) -> PathBuf {
     }
 }
 
-fn sha256_compare(file_path: &PathBuf, checksum: &str) -> Result<bool> {
+async fn sha256_compare(file_path: &PathBuf, checksum: &str) -> Result<bool> {
     use sha2::Digest;
-    let mut file = std::fs::File::open(file_path)?;
+    let file = tokio::fs::File::open(file_path).await?;
     let mut hasher = sha2::Sha256::new();
-    std::io::copy(&mut file, &mut hasher)?;
+
+    // Use tokio's async copy to read the file and update the hasher
+    let mut file = tokio::io::BufReader::new(file);
+    let mut buffer = vec![0; 8192]; // 8KB buffer
+    loop {
+        let bytes_read = file.read(&mut buffer).await?;
+        if bytes_read == 0 {
+            break; // EOF
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+
     let hash = hasher.finalize();
     Ok(hash[..] == hex::decode(checksum).expect("sha256 checksum incorrect"))
 }
 
-fn search(search_path: &Vec<String>, data: &CrateData) -> Option<PathBuf> {
+async fn search(search_path: &Vec<String>, data: &CrateData) -> Option<PathBuf> {
     for path in search_path {
         let pattern = format!("{}/**/{}-{}.crate", path, data.name, data.vers);
-        if let Ok(mut potential_matchs) = glob(&pattern) {
-            return potential_matchs
-                .find(|c| {
-                    sha256_compare(c.as_ref().expect("Unexpected glob error..."), &data.cksum)
-                        .expect("sha256 compare failed")
-                })
-                .map(|c| c.expect("Unexpected glob error..."));
+        if let Ok(potential_matchs) = glob(&pattern) {
+            for potential_match in potential_matchs.flatten() {
+                if sha256_compare(&potential_match, &data.cksum)
+                    .await
+                    .expect("sha256 compare failed")
+                {
+                    return Some(potential_match);
+                }
+            }
         }
     }
 
