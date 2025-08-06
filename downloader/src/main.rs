@@ -26,14 +26,14 @@ pub struct Args {
 
     /// Location to store files
     #[arg(short, long)]
-    location: PathBuf,
+    store: PathBuf,
 
     /// Git repository, if specified this repository will be reset and updated
     #[arg(short, long)]
     git_repository: PathBuf,
 
     /// Optional search path for existing crates
-    #[arg(short, long)]
+    #[arg(long)]
     search_path: Vec<String>,
 
     /// Optional input containing sha256 checksums of existing files
@@ -58,7 +58,7 @@ async fn main() -> Result<()> {
     let glob_search = &format!("{}/**/*", args.git_repository.to_string_lossy());
     let crate_definitions: Paths = glob(glob_search).expect("Location glob search failed");
     let to_process = crate_definitions.count();
-    log::info!("Found {} potential crate definitions", to_process);
+    log::info!("Found {to_process} potential crate definitions");
     let crate_definitions: Paths = glob(glob_search).expect("Location glob search failed");
 
     log::info!("Processing crate definitions");
@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
     log::info!("Downloading {} crates", crates.len());
     lib::download_crates(
         &args.git_repository,
-        &args.location,
+        &args.store,
         args.limit,
         &args.search_path,
         crates,

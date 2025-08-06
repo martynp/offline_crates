@@ -48,7 +48,7 @@ This change must be committed to the default branch.
 The server can be started using the following command:
 
 ``` bash 
-cargo run -p server -- --location /mnt/crates --git-repository http://localhost:8080/crates.io-index.git
+cargo run -p server -- --store /mnt/files --git-repository ./git
 ```
 
 The following additional parameters can be used:
@@ -80,8 +80,8 @@ Each release is also packaged in to a single docker image, hosted on docker hub 
 
 ```
 # Download / update local mirror
-docker run --rm -it -u $(id -u):$(id -g) -v [path/to/location]:/files -v [path/to/git]:/git martynp/offline-crates:latest downloader -l /files -g /git
+docker run --rm -it -u $(id -u):$(id -g) -v [path/to/location]:/files -v [path/to/git]:/git martynp/offline-crates:latest downloader --store /files -git-repository /git
 
 # Start server on port 8000
-docker run --rm -it -u $(id -u):$(id -g) -p 8000:8000 -v [path/to/location]:/files -v [path/to/git]:/git martynp/offline-crates:latest server -l /files -g /git
+docker run --rm -it -u $(id -u):$(id -g) -p 8000:8000 -v [path/to/location]:/files -v [path/to/git]:/git martynp/offline-crates:latest server --store /files -git-repository /git
 ```
