@@ -35,6 +35,10 @@ pub struct Args {
     /// Optional search path for existing crates
     #[arg(long)]
     search_path: Vec<String>,
+    
+    /// Optional, if set discovered crates are moved rather than copied
+    #[arg(long, default_value_t = false)]
+    move_crates: bool,
 
     /// Optional input containing sha256 checksums of existing files
     #[arg(short, long)]
@@ -73,6 +77,7 @@ async fn main() -> Result<()> {
         &args.store,
         args.limit,
         &args.search_path,
+        args.move_crates,
         crates,
     )
     .await?;

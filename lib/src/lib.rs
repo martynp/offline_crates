@@ -110,6 +110,7 @@ pub async fn download_crates(
     location: &Path,
     limit: i32,
     search_path: &Vec<String>,
+    move_matches: bool,
     crates: Vec<CrateData>,
 ) -> Result<()> {
     let number_of_crates = crates.len();
@@ -146,7 +147,16 @@ pub async fn download_crates(
                 {
                     continue;
                 } else if let Some(path) = search(&search_paths, &data).await {
-                    tokio::fs::copy(path, file_path).await.unwrap();
+                    tokio::fs::create_dir_all(
+                        file_path.parent().expect("File did not have parent"),
+                    )
+                    .await
+                    .unwrap();
+                    if move_matches {
+                        tokio::fs::rename(path, file_path).await.unwrap();
+                    } else {
+                        tokio::fs::copy(path, file_path).await.unwrap();
+                    }
                     continue;
                 } else {
                     tokio::fs::create_dir_all(
@@ -273,7 +283,7 @@ pub async fn process_existing_crates_list(
                 }
                 if let Some(found) = existing.get(&c.cksum) {
                     if format!("{}-{}.crate", c.name, c.vers) != *found {
-                        log::warn!("Name missmatch {} != {}", c.name, found);
+                        log::warn!("Name mismatch {} != {}", c.name, found);
                     }
                     return false;
                 }
@@ -416,8 +426,8 @@ async fn sha256_compare(file_path: &PathBuf, checksum: &str) -> Result<bool> {
 async fn search(search_path: &Vec<String>, data: &CrateData) -> Option<PathBuf> {
     for path in search_path {
         let pattern = format!("{}/**/{}-{}.crate", path, data.name, data.vers);
-        if let Ok(potential_matchs) = glob(&pattern) {
-            for potential_match in potential_matchs.flatten() {
+        if let Ok(potential_matches) = glob(&pattern) {
+            for potential_match in potential_matches.flatten() {
                 if sha256_compare(&potential_match, &data.cksum)
                     .await
                     .expect("sha256 compare failed")
