@@ -35,7 +35,7 @@ pub struct Args {
     /// Optional search path for existing crates
     #[arg(long)]
     search_path: Vec<String>,
-    
+
     /// Optional, if set discovered crates are moved rather than copied
     #[arg(long, default_value_t = false)]
     move_crates: bool,
@@ -91,7 +91,6 @@ pub fn update_git_repository(args: &crate::Args) -> Result<()> {
     // User has defined a pre-existing repository to use, or a blank folder to use
     let repo = match Repository::open(args.git_repository.clone()) {
         Ok(r) => {
-            // If it did open, is it actually the correct repository?
             log::info!(
                 "Opened repository located at {}",
                 args.git_repository.to_string_lossy()
@@ -109,10 +108,23 @@ pub fn update_git_repository(args: &crate::Args) -> Result<()> {
         }
     };
 
-    log::info!("Checking out branch {}", &args.branch);
-    let (object, _) = repo.revparse_ext(&args.branch).map_err(Error::other)?;
+    // Fetch updates from origin first
+    log::info!("Fetching updates for branch {}", &args.branch);
+    repo.find_remote("origin")
+        .map_err(Error::other)?
+        .fetch(&[&args.branch], None, None)
+        .map_err(Error::other)?;
 
-    repo.checkout_tree(&object, None).map_err(Error::other)?;
+    // Now hard reset the local branch to match origin/<branch>
+    let refname = format!("refs/heads/{}", args.branch);
+    let remote_refname = format!("refs/remotes/origin/{}", args.branch);
+    let oid = repo.refname_to_id(&remote_refname).map_err(Error::other)?;
+    let object = repo.find_object(oid, None).map_err(Error::other)?;
+    repo.reset(&object, git2::ResetType::Hard, None).map_err(Error::other)?;
+
+    // Set HEAD to the branch and checkout (ensures working tree is clean)
+    repo.set_head(&refname).map_err(Error::other)?;
+    repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force())).map_err(Error::other)?;
 
     Ok(())
 }
