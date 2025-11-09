@@ -43,6 +43,10 @@ pub struct Args {
     /// Optional input containing sha256 checksums of existing files
     #[arg(short, long)]
     existing: Option<PathBuf>,
+
+    /// If provided, enable blocked crates
+    #[arg(long, default_value_t = false)]
+    enable_blocked_crates: bool,
 }
 
 #[tokio::main]
@@ -78,6 +82,7 @@ async fn main() -> Result<()> {
         args.limit,
         &args.search_path,
         args.move_crates,
+        args.enable_blocked_crates,
         crates,
     )
     .await?;
@@ -120,11 +125,13 @@ pub fn update_git_repository(args: &crate::Args) -> Result<()> {
     let remote_refname = format!("refs/remotes/origin/{}", args.branch);
     let oid = repo.refname_to_id(&remote_refname).map_err(Error::other)?;
     let object = repo.find_object(oid, None).map_err(Error::other)?;
-    repo.reset(&object, git2::ResetType::Hard, None).map_err(Error::other)?;
+    repo.reset(&object, git2::ResetType::Hard, None)
+        .map_err(Error::other)?;
 
     // Set HEAD to the branch and checkout (ensures working tree is clean)
     repo.set_head(&refname).map_err(Error::other)?;
-    repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force())).map_err(Error::other)?;
+    repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))
+        .map_err(Error::other)?;
 
     Ok(())
 }
