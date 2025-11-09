@@ -14,6 +14,16 @@ pub mod structures;
 
 use crate::structures::*;
 
+/// Crates known to trigger AV - either related to potential malware or contain test
+/// vectors intended to trigger AV
+pub(crate) const BLOCKED_CRATES: &[&str] = &[
+    "clamav-client-2.1.0.crate",
+    "tayvo_clamav-client-0.1.5.crate",
+    "capcom0-0.1.0.crate",
+    "lancelot-0.8.6.crate",
+    "pelite-0.8.0.crate",
+];
+
 pub async fn process_crate_definition(glob: Paths, expected: usize) -> Vec<CrateData> {
     let mut task_channels = Vec::new();
     let mut join_handles = Vec::new();
@@ -92,7 +102,7 @@ pub async fn process_crate_definition(glob: Paths, expected: usize) -> Vec<Crate
 
     collector
         .await
-        .expect("Failed to join crate definiton collecting thread")
+        .expect("Failed to join crate definition collecting thread")
 }
 
 /// Download the crates we know about.
@@ -111,6 +121,7 @@ pub async fn download_crates(
     limit: i32,
     search_path: &Vec<String>,
     move_matches: bool,
+    enable_blocked_crates: bool,
     crates: Vec<CrateData>,
 ) -> Result<()> {
     let number_of_crates = crates.len();
@@ -189,12 +200,22 @@ pub async fn download_crates(
         let mut ecount = 0;
         let mut channel_index = 0;
         for c in crates {
+            if !enable_blocked_crates {
+                let crate_filename = format!("{}-{}.crate", c.name, c.vers);
+                if BLOCKED_CRATES.contains(&crate_filename.as_str()) {
+                    log::warn!("Skipping blocked crate {}", crate_filename);
+                    count += 1;
+                    set_progress_bar_progress(count);
+                    continue;
+                }
+            }
+
             'send_command: loop {
                 let result = task_channels[channel_index]
                     .send_timeout(c.to_owned(), std::time::Duration::from_millis(100))
                     .await;
 
-                // Alway increment to the next channel
+                // Always increment to the next channel
                 channel_index += 1;
                 if channel_index >= task_channels.len() {
                     channel_index = 0;
